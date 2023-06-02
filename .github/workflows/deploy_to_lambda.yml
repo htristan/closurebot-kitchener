@@ -25,7 +25,7 @@ jobs:
 
     - name: Package code
       run: |
-        cp -r ./* ./package/
+        rsync -r --exclude=package . ./package/
         cd package
         zip -r ../function.zip .
 
