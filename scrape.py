@@ -24,7 +24,7 @@ dynamodb = boto3.resource('dynamodb',
 dbTable = dynamodb.Table("ClosureBotDB")
 
 
-def scrape_road_closures():
+def scrape_kitchener_closures():
     # Send a GET request to the road closures page
     response = requests.get(url)
     if response.status_code == 200:
@@ -54,7 +54,7 @@ def scrape_road_closures():
                 date_match = re.search(r'Date:\s+([\w-]+)\s+to\s+([\w-]+)', closure_info)
                 closure_date = f"{date_match.group(1)} to {date_match.group(2)}" if date_match else "Unknown"
 
-                if check_closure_exists(road_name,closure_date):
+                if check_closure_exists('Kitchener', road_name, closure_date):
                     continue
                 else:
                     dbTable.put_item(
@@ -87,7 +87,7 @@ def scrape_road_closures():
                 #emergency clsoure - set date to today - normally there is no date there
                 closure_date = date.today().strftime("%Y-%b-%d")
 
-                if check_closure_exists(road_name,closure_date):
+                if check_closure_exists('Kitchener', road_name, closure_date):
                     continue
                 else:
                     dbTable.put_item(
@@ -105,10 +105,10 @@ def scrape_road_closures():
     else:
         print('Failed to scrape road closures.')
 
-def check_closure_exists(road_name, closure_date):
+def check_closure_exists(city_area, road_name, closure_date):
     dbResponse = dbTable.get_item(
                 Key={
-                    'CityArea': 'Kitchener',
+                    'CityArea': city_area,
                     'RoadName': road_name,
                 }
             )
@@ -169,7 +169,7 @@ def notify_discord(road_name, from_to, closure_info):
     client.run(DISCORD_TOKEN)
 
 def lambda_handler(event, context):
-    scrape_road_closures()
+    scrape_kitchener_closures()
 
 def send_test_event():
     notify_discord('test road name', 'EARL ST TO BELMONT AVE W', "Reason: Special Event\
