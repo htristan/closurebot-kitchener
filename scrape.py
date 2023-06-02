@@ -5,9 +5,12 @@ from discord import Embed
 from datetime import date
 import boto3
 import re
+import os
 
 # Discord bot token and channel ID
-TOKEN = 'APIKEY'
+DISCORD_TOKEN = os.environ['DISCORD_TOKEN']
+AWS_ACCESS_KEY_ID = os.environ['AWS_DB_KEY']
+AWS_SECRET_ACCESS_KEY = os.environ['AWS_DB_SECRET_ACCESS_KEY']
 CHANNEL_ID = '1111507316274114651'
 
 # URL of the City of Kitchener road closures page
@@ -15,8 +18,8 @@ url = 'https://app2.kitchener.ca/roadclosures/'
 
 dynamodb = boto3.resource('dynamodb',
     region_name='us-east-1',
-    aws_access_key_id='APIKEY',
-    aws_secret_access_key='APIKEY'
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY
     )
 dbTable = dynamodb.Table("ClosureBotDB")
 
@@ -163,7 +166,7 @@ def notify_discord(road_name, from_to, closure_info):
             print(f'Failed to find the Discord channel with ID: {CHANNEL_ID}')
         await client.close()
 
-    client.run(TOKEN)
+    client.run(DISCORD_TOKEN)
 
 def lambda_handler(event, context):
     scrape_road_closures()
