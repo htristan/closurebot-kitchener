@@ -14,7 +14,8 @@ AWS_SECRET_ACCESS_KEY = os.environ['AWS_DB_SECRET_ACCESS_KEY']
 CHANNEL_ID = '1111507316274114651'
 
 # URL of the City of Kitchener road closures page
-url = 'https://app2.kitchener.ca/roadclosures/'
+url_kitchener = 'https://app2.kitchener.ca/roadclosures/'
+url_hamilton = 'https://www.hamilton.ca/home-neighbourhood/getting-around/driving-traffic/road-closures'
 
 dynamodb = boto3.resource('dynamodb',
     region_name='us-east-1',
@@ -23,10 +24,52 @@ dynamodb = boto3.resource('dynamodb',
     )
 dbTable = dynamodb.Table("ClosureBotDB")
 
+def scrape_hamilton_closures():
+    # Send a GET request to the road closures page
+    response = requests.get(url_hamilton)
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.content, 'html.parser')
+        #headers we want
+        match_header = 'Start Date'
+        
+        tables = soup.find_all('table')
+
+        for table in tables:
+            headers = [th.get_text(strip=True) for th in table.find_all('th')]
+
+            if match_header in headers:
+                #we found the table we want
+                table_body = table.find('tbody')
+
+                rows = table_body.find_all('tr')
+
+                for row in rows:
+                    # Extract closure details
+                    columns = row.find_all('td')
+                    road_name = columns[2].text.strip()
+                    closure_info = columns[3].text.strip()
+                    closure_date = f"{columns[0].text.strip()} to {columns[1].text.strip()}"
+                    
+                    if check_closure_exists('Hamilton', road_name, closure_date):
+                        continue
+                    else:
+                        dbTable.put_item(
+                            Item={
+                            'CityArea': 'Hamilton',
+                            'RoadName': road_name,
+                            'ClosureDate': closure_date,
+                            'ClosureInfo': closure_info
+                            }
+                        )
+
+                        # Notify the closure on Discord
+                        notify_discord('Hamilton', road_name, closure_info, closure_dates=closure_date, from_to=None)
+    else:
+        print('Failed to scrape road closures.')
 
 def scrape_kitchener_closures():
     # Send a GET request to the road closures page
-    response = requests.get(url)
+    response = requests.get(url_kitchener)
     if response.status_code == 200:
         soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -68,7 +111,7 @@ def scrape_kitchener_closures():
                 )
 
                 # Notify the closure on Discord
-                notify_discord(road_name, from_to, closure_info)
+                notify_discord(road_name, closure_info, from_to, closure_date)
         if caption2 != None:
             table = caption2.find_parent('table', class_='datatable')
 
@@ -101,7 +144,7 @@ def scrape_kitchener_closures():
                 )
 
                 # Notify the closure on Discord
-                notify_discord(road_name, from_to, closure_info)
+                notify_discord('Kitchener', road_name, closure_info, from_to)
     else:
         print('Failed to scrape road closures.')
 
@@ -119,7 +162,7 @@ def check_closure_exists(city_area, road_name, closure_date):
             return True
     return False
 
-def notify_discord(road_name, from_to, closure_info):
+def notify_discord(city_name, road_name, closure_info, from_to=None, closure_dates=None):
     # Create a Discord bot client
     intents = discord.Intents.default()
     client = discord.Client(intents=intents)
@@ -129,36 +172,44 @@ def notify_discord(road_name, from_to, closure_info):
         # Find the target channel by ID
         channel = client.get_channel(int(CHANNEL_ID))
         if channel:
-            embed = Embed(title="Kitchener Road Closure Update", color=discord.Color.red())
-            try:
-                closure_reason_match = re.search(r'Reason:\s+(.+)\s+', closure_info)
-                closure_reason = closure_reason_match.group(1) if closure_reason_match else None
-                if closure_reason is None:
-                    raise IndexError("Closure reason not found")
+            embed = Embed(title=f"{city_name} Road Closure Update", color=discord.Color.red())
+            if city_name == 'Kitchener':
+                try:
+                    closure_reason_match = re.search(r'Reason:\s+(.+)\s+', closure_info)
+                    closure_reason = closure_reason_match.group(1) if closure_reason_match else None
+                    if closure_reason is None:
+                        raise IndexError("Closure reason not found")
 
-                closure_date_match = re.search(r'Date:\s+([\w-]+)\s+to\s+([\w-]+)', closure_info)
-                closure_date = f"{closure_date_match.group(1)} to {closure_date_match.group(2)}" if closure_date_match else None
-                if closure_date is None:
-                    raise IndexError("Closure date not found")
+                    closure_date_match = re.search(r'Date:\s+([\w-]+)\s+to\s+([\w-]+)', closure_info)
+                    closure_date = f"{closure_date_match.group(1)} to {closure_date_match.group(2)}" if closure_date_match else None
+                    if closure_date is None:
+                        raise IndexError("Closure date not found")
 
-                closure_details_match = re.search(r'Details:\s+(.+)\s+', closure_info)
-                closure_details = closure_details_match.group(1) if closure_details_match else None
-                if closure_details is None:
-                    raise IndexError("Closure details not found")
+                    closure_details_match = re.search(r'Details:\s+(.+)\s+', closure_info)
+                    closure_details = closure_details_match.group(1) if closure_details_match else None
+                    if closure_details is None:
+                        raise IndexError("Closure details not found")
 
-                closure_contact_match = re.search(r'Contact:\s+(.+)', closure_info)
-                closure_contact = closure_contact_match.group(1) if closure_contact_match else None
-                if closure_contact is None:
-                    raise IndexError("Clsoure contact not found")
-                # Create a rich embed for the closure notification
+                    closure_contact_match = re.search(r'Contact:\s+(.+)', closure_info)
+                    closure_contact = closure_contact_match.group(1) if closure_contact_match else None
+                    if closure_contact is None:
+                        raise IndexError("Clsoure contact not found")
+                    # Create a rich embed for the closure notification
+                    embed.add_field(name="Road", value=road_name, inline=False)
+                    embed.add_field(name="From/To", value=from_to, inline=False)
+                    embed.add_field(name="Reason", value=closure_reason, inline=False)
+                    embed.add_field(name="Date", value=closure_date, inline=False)
+                    embed.add_field(name="Details", value=closure_details, inline=False)
+                    embed.add_field(name="Contact", value=closure_contact, inline=False)
+                except IndexError:
+                    embed.add_field(name="Details", value=f"Road: {road_name}\nFrom/To: {from_to}\nClosure Info: {closure_info}")
+            else:
                 embed.add_field(name="Road", value=road_name, inline=False)
-                embed.add_field(name="From/To", value=from_to, inline=False)
-                embed.add_field(name="Reason", value=closure_reason, inline=False)
-                embed.add_field(name="Date", value=closure_date, inline=False)
-                embed.add_field(name="Details", value=closure_details, inline=False)
-                embed.add_field(name="Contact", value=closure_contact, inline=False)
-            except IndexError:
-                embed.add_field(name="Details", value=f"Road: {road_name}\nFrom/To: {from_to}\nClosure Info: {closure_info}")
+                embed.add_field(name="Details", value=closure_info, inline=False)
+                if from_to:
+                    embed.add_field(name="From/To", value=from_to, inline=False)
+                if closure_dates:
+                    embed.add_field(name="Date", value=closure_dates, inline=False)
 
             # Send the closure notification
             await channel.send(embed=embed)
@@ -170,10 +221,11 @@ def notify_discord(road_name, from_to, closure_info):
 
 def lambda_handler(event, context):
     scrape_kitchener_closures()
+    scrape_hamilton_closures()
 
 def send_test_event():
-    notify_discord('test road name', 'EARL ST TO BELMONT AVE W', "Reason: Special Event\
+    notify_discord('Kitchener', 'test road name', "Reason: Special Event\
             Date: 2023-May-26 to 2023-May-27\
             Details: 2 day closure local access only\
-            Contact: Stephanie Brasseur 519-741-2200 ext. 7373")
-    notify_discord('test road name', 'Earl st test',"reason: asdfasdflkjasdfoijqweoimsadoifjs")
+            Contact: Stephanie Brasseur 519-741-2200 ext. 7373", 'EARL ST TO BELMONT AVE W')
+    notify_discord('Kithcener', 'test road name',"reason: asdfasdflkjasdfoijqweoimsadoifjs", 'Earl st test')
