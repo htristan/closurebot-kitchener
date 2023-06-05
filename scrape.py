@@ -4,6 +4,7 @@ import discord
 from discord import Embed
 from datetime import date
 import boto3
+from boto3.dynamodb.conditions import Key
 import re
 import os
 
@@ -49,20 +50,36 @@ def scrape_hamilton_closures():
                     road_name = columns[2].text.strip()
                     closure_info = columns[3].text.strip()
                     closure_date = f"{columns[0].text.strip()} to {columns[1].text.strip()}"
-                    
-                    if check_closure_exists('Hamilton', road_name, closure_date):
+
+                    needNotify = False
+                    exists, status = check_closure_exists('Hamilton', road_name, closure_date)
+                    if exists:
+                        if status == "Append":
+                            dbTable.update_item(
+                                Key={'CityArea': 'Hamilton',
+                                'RoadName': road_name,
+                                },
+                            UpdateExpression="SET ClosureDate = list_append(ClosureDate, :newdate)",
+                            ExpressionAttributeValues={
+                                ':newdate': [closure_date]
+                            },
+                            ReturnValues="UPDATED_NEW"
+                        )
+                        needNotify = True
+                        # if status is "existing, we do nothing"
                         continue
                     else:
                         dbTable.put_item(
                             Item={
                             'CityArea': 'Hamilton',
                             'RoadName': road_name,
-                            'ClosureDate': closure_date,
+                            'ClosureDate': [closure_date],
                             'ClosureInfo': closure_info
                             }
                         )
-
-                        # Notify the closure on Discord
+                        needNotify = True
+                    if needNotify:
+                        #Notify the closure on Discord
                         notify_discord('Hamilton', road_name, closure_info, closure_dates=closure_date, from_to=None)
     else:
         print('Failed to scrape road closures.')
@@ -97,7 +114,22 @@ def scrape_kitchener_closures():
                 date_match = re.search(r'Date:\s+([\w-]+)\s+to\s+([\w-]+)', closure_info)
                 closure_date = f"{date_match.group(1)} to {date_match.group(2)}" if date_match else "Unknown"
 
-                if check_closure_exists('Kitchener', road_name, closure_date):
+                needNotify = False
+                exists, status = check_closure_exists('Kitchener', road_name, closure_date)
+                if exists:
+                    if status == "Append":
+                            dbTable.update_item(
+                                Key={'CityArea': 'Kitchener',
+                                'RoadName': road_name,
+                                },
+                            UpdateExpression="SET ClosureDate = list_append(ClosureDate, :newdate)",
+                            ExpressionAttributeValues={
+                                ':newdate': [closure_date]
+                            },
+                            ReturnValues="UPDATED_NEW"
+                        )
+                    needNotify = True
+                    # if status is "existing, we do nothing"
                     continue
                 else:
                     dbTable.put_item(
@@ -107,8 +139,9 @@ def scrape_kitchener_closures():
                         'FromTo': from_to,
                         'ClosureDate': closure_date,
                         'ClosureInfo': closure_info
-                    }
-                )
+                        }
+                    )
+                    needNotify = True
 
                 # Notify the closure on Discord
                 notify_discord(road_name, closure_info, from_to, closure_date)
@@ -149,18 +182,22 @@ def scrape_kitchener_closures():
         print('Failed to scrape road closures.')
 
 def check_closure_exists(city_area, road_name, closure_date):
-    dbResponse = dbTable.get_item(
-                Key={
-                    'CityArea': city_area,
-                    'RoadName': road_name,
-                }
-            )
-    item = dbResponse.get('Item')
-    if item:
-        existing_closure_date = item.get('ClosureDate')
-        if existing_closure_date == closure_date:
-            return True
-    return False
+    dbResponse = dbTable.query(
+        KeyConditionExpression=Key('CityArea').eq(city_area) & Key('RoadName').eq(road_name)
+    )
+    items = dbResponse.get('Items')
+    if items:
+        for item in items:
+            existing_closure_dates = item.get('ClosureDate')
+            if isinstance(existing_closure_dates, list):
+                if closure_date in existing_closure_dates:
+                    return True, "Existing"
+                else:
+                    return True, "Append"
+            else:
+                if existing_closure_dates == closure_date:
+                    return True, "Existing"
+    return False, "New"
 
 def notify_discord(city_name, road_name, closure_info, from_to=None, closure_dates=None):
     # Create a Discord bot client
