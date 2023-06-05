@@ -137,7 +137,7 @@ def scrape_kitchener_closures():
                         'CityArea': 'Kitchener',
                         'RoadName': road_name,
                         'FromTo': from_to,
-                        'ClosureDate': closure_date,
+                        'ClosureDate': [closure_date],
                         'ClosureInfo': closure_info
                         }
                     )
