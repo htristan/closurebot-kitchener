@@ -163,7 +163,20 @@ def scrape_kitchener_closures():
                 #emergency clsoure - set date to today - normally there is no date there
                 closure_date = date.today().strftime("%Y-%b-%d")
 
-                if check_closure_exists('Kitchener', road_name, closure_date):
+                exists, status = check_closure_exists('Kitchener', road_name, closure_date)
+                if exists:
+                    if status == "Append":
+                            dbTable.update_item(
+                                Key={'CityArea': 'Kitchener',
+                                'RoadName': road_name,
+                                },
+                            UpdateExpression="SET ClosureDate = list_append(ClosureDate, :newdate)",
+                            ExpressionAttributeValues={
+                                ':newdate': [closure_date]
+                            },
+                            ReturnValues="UPDATED_NEW"
+                        )
+                    # if status is "existing, we do nothing"
                     continue
                 else:
                     dbTable.put_item(
