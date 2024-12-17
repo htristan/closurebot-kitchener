@@ -10,20 +10,30 @@ import os
 
 # Discord bot token and channel ID
 DISCORD_TOKEN = os.environ['DISCORD_TOKEN']
-AWS_ACCESS_KEY_ID = os.environ['AWS_DB_KEY']
-AWS_SECRET_ACCESS_KEY = os.environ['AWS_DB_SECRET_ACCESS_KEY']
+AWS_ACCESS_KEY_ID = os.environ.get('AWS_DB_KEY', None)
+AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_DB_SECRET_ACCESS_KEY', None)
 CHANNEL_ID = '1111507316274114651'
 
 # URL of the City of Kitchener road closures page
 url_kitchener = 'https://app2.kitchener.ca/roadclosures/'
 url_hamilton = 'https://www.hamilton.ca/home-neighbourhood/getting-around/driving-traffic/road-closures'
 
-dynamodb = boto3.resource('dynamodb',
-    region_name='us-east-1',
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-    )
-dbTable = dynamodb.Table("ClosureBotDB")
+# Fallback mechanism for credentials
+try:
+    # Use environment variables if they exist
+    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+        dynamodb = boto3.resource(
+            'dynamodb',
+            region_name='us-east-1',
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+        )
+    else:
+        # Otherwise, use IAM role permissions (default behavior of boto3)
+        dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+except (NoCredentialsError, PartialCredentialsError):
+    print("AWS credentials are not properly configured. Ensure IAM role or environment variables are set.")
+    raise
 
 def scrape_hamilton_closures():
     # Send a GET request to the road closures page
