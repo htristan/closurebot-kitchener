@@ -22,7 +22,7 @@ url_hamilton = 'https://www.hamilton.ca/home-neighbourhood/getting-around/drivin
 try:
     # Use environment variables if they exist
     if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
-        dynamodb = boto3.resource(
+        dbTable = boto3.resource(
             'dynamodb',
             region_name='us-east-1',
             aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -30,7 +30,7 @@ try:
         )
     else:
         # Otherwise, use IAM role permissions (default behavior of boto3)
-        dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+        dbTable = boto3.resource('dynamodb', region_name='us-east-1')
 except (NoCredentialsError, PartialCredentialsError):
     print("AWS credentials are not properly configured. Ensure IAM role or environment variables are set.")
     raise
